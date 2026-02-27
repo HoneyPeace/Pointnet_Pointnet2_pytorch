@@ -24,9 +24,9 @@ parser.add_argument('--train_len', type=int, default=0, help='학습 데이터 �
 
 # [3] 학습 하이퍼파라미터
 parser.add_argument('--num_points', type=int, default=4096, help='입력 포인트 개수')
-parser.add_argument('--batch_size', type=int, default=16, help='배치 사이즈')
+parser.add_argument('--batch_size', type=int, default=32, help='배치 사이즈')
 parser.add_argument('--accumulation_steps', type=int, default=2, help='그래디언트 누적 스텝 (VRAM 절약용)')
-parser.add_argument('--epoch', type=int, default=251, help='총 에포크 수')
+parser.add_argument('--epoch', type=int, default=250, help='총 에포크 수')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='초기 학습률')
 parser.add_argument('--weight_decay', type=float, default=1e-4, help='가중치 감소')
 

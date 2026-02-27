@@ -9,38 +9,45 @@ class EarLandmarkDataset(Dataset):
         self.npy_dir = npy_dir
         self.partition = partition
         
-        # Result 폴더 내의 npy_dir에서 데이터 로드
         shape_path = os.path.join(self.npy_dir, f'shape_{self.partition}.npy')
         land_path  = os.path.join(self.npy_dir, f'landmark_{self.partition}.npy')
         
         if not os.path.exists(shape_path):
-            raise FileNotFoundError(f"NPY not found in {self.npy_dir}. Run util.py first.")
+            raise FileNotFoundError(f"NPY not found in {self.npy_dir}")
 
         self.points = np.load(shape_path, allow_pickle=True)
         self.landmarks = np.load(land_path, allow_pickle=True)
         
         if self.partition == 'train':
-            self.scaler = aug.PointcloudScaleAndTranslate()
+            self.augmenter = aug.PointcloudRotateAndTranslate()
 
     def __getitem__(self, item):
-        points = self.points[item]      
-        landmarks = self.landmarks[item] 
+        points = self.points[item].copy()      
+        landmarks = self.landmarks[item].copy()
 
         N = points.shape[0]
         M = landmarks.shape[0] 
         
-        # Augmentation (점과 랜드마크 묶어서 변형)
-        points_t = torch.from_numpy(points).float().unsqueeze(0)
-        landmarks_t = torch.from_numpy(landmarks).float().unsqueeze(0)
-        combined = torch.cat([points_t, landmarks_t], dim=1) 
+        # [완벽 수정됨] 순수 points 만으로 중심점과 스케일을 계산하여 정규화
+        centroid = np.mean(points, axis=0)
+        points = points - centroid
+        landmarks = landmarks - centroid # 랜드마크도 동일하게 이동
         
-        combined = aug.normalize_data(combined)
+        m = np.max(np.sqrt(np.sum(points ** 2, axis=1)))
+        points = points / m
+        landmarks = landmarks / m # 랜드마크도 동일하게 축소
+        
+        # 증강(Augmentation)을 위해 잠시 합침
         if self.partition == 'train':
-            combined = self.scaler(combined)
+            points_t = torch.from_numpy(points).float().unsqueeze(0)
+            landmarks_t = torch.from_numpy(landmarks).float().unsqueeze(0)
+            combined = torch.cat([points_t, landmarks_t], dim=1) 
             
-        combined = combined.squeeze(0).numpy()
-        points = combined[:N, :]
-        landmarks = combined[N:, :]
+            combined = self.augmenter(combined)
+            
+            combined = combined.squeeze(0).numpy()
+            points = combined[:N, :]
+            landmarks = combined[N:, :]
 
         # Segmentation & Offset 정답지 생성 (O'Sullivan 반경 로직)
         bbox_lengths = np.max(points, axis=0) - np.min(points, axis=0)
