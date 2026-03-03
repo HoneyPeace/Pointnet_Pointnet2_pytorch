@@ -49,28 +49,34 @@ class EarLandmarkDataset(Dataset):
             points = combined[:N, :]
             landmarks = combined[N:, :]
 
-        # Segmentation & Offset 정답지 생성 (O'Sullivan 반경 로직)
+        # Segmentation & Offset 정답지 생성 (보로노이 다이어그램 기반 공유 로직)
         bbox_lengths = np.max(points, axis=0) - np.min(points, axis=0)
         ear_height = np.max(bbox_lengths) 
         
-        min_lm_dist = float('inf')
-        for i in range(M):
-            for j in range(i + 1, M):
-                dist = np.linalg.norm(landmarks[i] - landmarks[j])
-                if dist < min_lm_dist:
-                    min_lm_dist = dist
-                    
-        radius = min(0.025 * ear_height, 0.5 * min_lm_dist)
+        # 1. 랜드마크가 가질 수 있는 최대 온전한 반경 설정 (귀 높이의 2.5%)
+        max_radius = 0.025 * ear_height
         
         seg_target = np.zeros(N, dtype=np.int64) 
         offset_target = np.zeros((N, 3), dtype=np.float32)
         
-        for k in range(M):
-            lm = landmarks[k]
-            dists_to_lm = np.linalg.norm(points - lm, axis=1)
-            mask = dists_to_lm <= radius
-            seg_target[mask] = k + 1 
-            offset_target[mask] = lm - points[mask] 
+        # 2. 모든 점(N)과 모든 랜드마크(M) 사이의 거리 행렬(N x M)을 한 번에 계산
+        diff = points[:, np.newaxis, :] - landmarks[np.newaxis, :, :] 
+        dists = np.linalg.norm(diff, axis=2) # (N, M) 거리 행렬
+        
+        # 3. 각 점의 입장에서 가장 가까운 랜드마크의 '거리'와 '번호'를 찾음 (핵심!)
+        min_dists = np.min(dists, axis=1)         # (N,) 가장 짧은 거리
+        closest_lm_idx = np.argmin(dists, axis=1) # (N,) 가장 가까운 랜드마크 번호 (0~39)
+        
+        # 4. '가장 가까운 거리'가 최대 반경(max_radius) 안에 들어오는 점들만 마스킹
+        # 반경 밖이면 영원히 배경(Class 0)으로 남음
+        valid_mask = min_dists <= max_radius
+        
+        # 5. 마스킹된 점들에 한해, 가장 가까운 랜드마크의 번호를 정답지로 부여 (클래스 1~40)
+        seg_target[valid_mask] = closest_lm_idx[valid_mask] + 1
+        
+        # 6. 오프셋: (자신이 소속된 랜드마크의 위치) - (현재 점의 위치)
+        assigned_landmarks = landmarks[closest_lm_idx[valid_mask]] 
+        offset_target[valid_mask] = assigned_landmarks - points[valid_mask]
 
         return torch.from_numpy(points).float(), \
                torch.from_numpy(seg_target).long(), \

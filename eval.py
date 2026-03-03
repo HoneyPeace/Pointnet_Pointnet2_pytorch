@@ -49,11 +49,16 @@ def main():
     classifier.eval()
 
     per_landmark_me_list = [] 
+    
+    test_correct_all, test_total_all = 0, 0
+    test_correct_lm, test_total_lm = 0, 0
+    zero_pred_warning = 0
 
     print("\n>> Starting Evaluation...")
     with torch.no_grad():
-        for i, (points, _, _, gt_landmarks) in enumerate(tqdm(testDataLoader)):
+        for i, (points, target_seg, offset_target, gt_landmarks) in enumerate(tqdm(testDataLoader)):
             points = points.to(device)
+            target_seg = target_seg.to(device)
             points_input = points.transpose(2, 1) 
             
             seg_pred, offset_pred = classifier(points_input)
@@ -63,17 +68,15 @@ def main():
             gt_lm_array = gt_landmarks[0].numpy()  
 
             raw_pts = raw_shapes[i]
-            raw_lms = raw_lands[i]
-            combined = np.concatenate([raw_pts, raw_lms], axis=0)
-            centroid = np.mean(combined, axis=0)
-            m_scale = np.max(np.sqrt(np.sum((combined - centroid) ** 2, axis=1)))
+            centroid = np.mean(raw_pts, axis=0) 
+            m_scale = np.max(np.sqrt(np.sum((raw_pts - centroid) ** 2, axis=1)))
 
             sample_errors = []
             for k in range(args.landmark_num):
                 pred_pos = pred_lm_dict[k]
                 gt_pos = gt_lm_array[k]
                 
-                # [수정] 랜드마크 누락(None) 시 에러 방지 -> nan(결측치)으로 안전하게 대체
+                # 랜드마크 누락(None) 시 에러 방지 -> nan(결측치)으로 대체
                 if pred_pos is None:
                     sample_errors.append(np.nan)
                     continue
@@ -84,15 +87,36 @@ def main():
                 
             per_landmark_me_list.append(sample_errors)
 
+            # Seg Acc 추적
+            pred_choice = seg_pred.argmax(dim=2)
+            correct = (pred_choice == target_seg)
+            
+            test_correct_all += correct.sum().item()
+            test_total_all += target_seg.numel()
+            
+            lm_mask = target_seg > 0
+            test_correct_lm += correct[lm_mask].sum().item()
+            test_total_lm += lm_mask.sum().item()
+
+            pred_classes = torch.unique(pred_choice[0])
+            if len(pred_classes) < (args.landmark_num + 1):
+                zero_pred_warning += 1
+
     # -----------------------------------------------------------------------------
-    # 5. 결과 집계 및 텍스트 저장 (결측치 nan 무시하고 계산)
+    # 결과 집계 및 NaN 분석
     # -----------------------------------------------------------------------------
+    v_acc_all = (test_correct_all / test_total_all) * 100
+    v_acc_lm  = (test_correct_lm / test_total_lm) * 100 if test_total_lm > 0 else 0
+
     per_landmark_me_array = np.array(per_landmark_me_list) 
-    
-    # np.nanmean과 np.nanstd를 사용하여 누락된 점은 수학적으로 안전하게 무시합니다.
+    total_samples = per_landmark_me_array.shape[0]
+
+    # [추가] 각 랜드마크별 결측(NaN) 횟수 및 비율 계산
+    missing_counts = np.isnan(per_landmark_me_array).sum(axis=0)
+    missing_rates = (missing_counts / total_samples) * 100.0
+
     lm_means = np.nanmean(per_landmark_me_array, axis=0) 
     lm_stds = np.nanstd(per_landmark_me_array, axis=0)  
-    
     average_me = np.nanmean(lm_means)
     std_me = np.nanmean(lm_stds)
 
@@ -106,32 +130,28 @@ def main():
     report_lines.append("==========================================")
     report_lines.append(f" Run ID      : {target_folder_name}")
     report_lines.append(f" Data Type   : {args.Eval_DataType}")
-    report_lines.append(f" User Comment: {args.user_tag if args.user_tag else 'None'}")
-    report_lines.append(f" Train Data  : {args.train_len} samples")
-    report_lines.append(f" Num Points  : {args.num_points}")
+    report_lines.append("------------------------------------------")
+    report_lines.append(f" Overall Seg Acc : {v_acc_all:.2f}% (배경 포함)")
+    report_lines.append(f" Landmark Seg Acc: {v_acc_lm:.2f}% (배경 제외)")
+    if zero_pred_warning > 0:
+        report_lines.append(f" [주의] {zero_pred_warning}개의 샘플에서 랜드마크 일부를 찾지 못했습니다 (nan).")
     report_lines.append("------------------------------------------")
     report_lines.append(f" Average ME : {average_me:.4f} mm")
-    report_lines.append(f" Average Std: {std_me:.4f} mm (Mean of Landmark Stds)") 
+    report_lines.append(f" Average Std: {std_me:.4f} mm") 
     report_lines.append(f" SR @ 10mm  : {sr_10:.2f} %")
     report_lines.append(f" SR @ 5mm   : {sr_5:.2f} %")
     report_lines.append("==========================================")
     
-    # Top 5 Hardest
-    report_lines.append("\n>>> Top 5 Hardest Landmarks:")
-    worst_indices = np.argsort(lm_means)[::-1][:5]
-    for i in worst_indices:
-        report_lines.append(f"    LM {i:02d}: {lm_means[i]:.3f} ± {lm_stds[i]:.3f} mm")
-    
-    # Top 5 Easiest
-    report_lines.append("\n>>> Top 5 Easiest Landmarks:")
-    best_indices = np.argsort(lm_means)[:5]
-    for i in best_indices:
-        report_lines.append(f"    LM {i:02d}: {lm_means[i]:.3f} ± {lm_stds[i]:.3f} mm")
-    
-    # All Landmarks
-    report_lines.append("\n>>> Per-landmark ME (Mean ± Std):")
+    # All Landmarks (누락 비율 정보 추가)
+    report_lines.append("\n>>> Per-landmark ME & Miss Rate (검출 정보):")
     for i in range(args.landmark_num):
-        report_lines.append(f"    LM {i:02d}: {lm_means[i]:.3f} ± {lm_stds[i]:.3f} mm")
+        miss_ratio = missing_rates[i]
+        detected = total_samples - missing_counts[i]
+        
+        if missing_counts[i] == total_samples:
+            report_lines.append(f"    LM {i:02d}: [100% 누락] nan ± nan mm (검출: 0/{total_samples}개)")
+        else:
+            report_lines.append(f"    LM {i:02d}: {lm_means[i]:.3f} ± {lm_stds[i]:.3f} mm (Miss: {miss_ratio:.1f}%, 검출: {detected}/{total_samples}개)")
         
     report_lines.append("    ------------------------------------")
     report_lines.append(f"    All  : {average_me:.3f} ± {std_me:.3f} mm")
