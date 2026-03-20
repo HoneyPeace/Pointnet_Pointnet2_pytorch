@@ -31,5 +31,5 @@ parser.add_argument('--learning_rate', type=float, default=0.001, help='초기 �
 parser.add_argument('--weight_decay', type=float, default=1e-4, help='가중치 감소')
 
 # [4] 모델 구조 설정 (PointNet++)
-parser.add_argument('--landmark_num', type=int, default=40, help='랜드마크 총 개수')
-parser.add_argument('--num_classes', type=int, default=41, help='Segmentation 클래스 (배경 1 + 랜드마크 40)')
+parser.add_argument('--landmark_num', type=int, default=44, help='랜드마크 총 개수')
+parser.add_argument('--num_classes', type=int, default=45, help='Segmentation 클래스 (배경 1 + 랜드마크 40)')

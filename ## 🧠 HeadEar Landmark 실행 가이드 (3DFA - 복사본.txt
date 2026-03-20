@@ -33,7 +33,7 @@ cd C:\Users\CGlab\Desktop\Earlandmark_SOTA\SOTA_model
 
 ```
 
-python train.py --train_dataset_name train --test_dataset_name test --sigma 2.5 --num_points 4096 --batch_size 16 --accumulation_steps 4 --dataset_seed 1 --sample_way FPS --need_resample True --exp_name Ear_10 --accumulation_steps 2 --user_tag "증강12"
+python train.py --train_dataset_name train --test_dataset_name test --num_points 4096 --batch_size 32 --epoch 500 --exp_name 테스트 --accumulation_steps 1 --user_tag "원본epoch500"                                                                          
 
 ```
 
@@ -43,7 +43,7 @@ python train.py --train_dataset_name train --test_dataset_name test --sigma 2.5 
 
 ```
 현재
-python eval_all.py --exp_name Ear_10 --run_id 1 --sigma 3 --num_points 4096 --Eval_DataType test --regression_point_num 10 --batch_size 16 --train_len 2300 --user_tag "증강12"
+python eval.py --exp_name 테스트 --num_points 4096 --batch_size 32 --train_len 96 --user_tag "Raw_epoch500" --run_id 2  
 
 ```
 

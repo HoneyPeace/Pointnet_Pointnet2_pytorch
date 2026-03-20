@@ -7,11 +7,15 @@ class OSullivan_Loss(nn.Module):
         super(OSullivan_Loss, self).__init__()
 
     def forward(self, seg_pred, seg_target, offset_pred, offset_target):
+        # [수정된 부분] 텐서의 마지막 차원에서 클래스 개수(예: 45)를 동적으로 가져옵니다.
+        num_classes = seg_pred.shape[-1]
+
         # 1. Segmentation Loss (랜드마크 영역에 가중치 5배 부여)
-        weights = torch.ones(41).to(seg_pred.device) 
+        weights = torch.ones(num_classes).to(seg_pred.device) 
         weights[1:] = 5.0  
 
-        seg_pred_flat = seg_pred.contiguous().view(-1, 41)
+        # [수정된 부분] 41 대신 num_classes를 사용합니다.
+        seg_pred_flat = seg_pred.contiguous().view(-1, num_classes)
         seg_target_flat = seg_target.view(-1)
         loss_seg = F.nll_loss(seg_pred_flat, seg_target_flat, weight=weights)
 
